@@ -595,6 +595,11 @@ void report_realtime_status()
     }
   #endif
 
+  if(spindle_measured_rpm > 0) {
+    printPgmString(PSTR("|T:"));
+    print_uint32_base10(spindle_measured_rpm);
+  }
+
   serial_write('>');
   report_util_line_feed();
 }

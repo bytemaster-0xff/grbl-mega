@@ -29,6 +29,7 @@
 #define SPINDLE_STATE_CW       bit(0)
 #define SPINDLE_STATE_CCW      bit(1)
 
+extern uint32_t spindle_measured_rpm;
 
 // Initializes spindle pins and hardware PWM, if enabled.
 void spindle_init();

@@ -21,21 +21,59 @@
 
 #include "grbl.h"
 
+uint32_t spindle_measured_rpm = 0;
 
-static float pwm_gradient; // Precalulated value to speed up rpm to PWM conversions.
+uint8_t spindle_count_idx = 0;
+uint16_t spindle_counts[10];
 
+ISR(TIMER4_OVF_vect)
+{
+  TCNT4 = 65536 - (250 * 100);
+  spindle_counts[spindle_count_idx++] = TCNT5;
+  if(spindle_count_idx >= 10) {
+    spindle_count_idx = 0;
+  }
+
+  uint32_t total = 0;
+  for(uint8_t i=0; i<10; i++) {
+    total += spindle_counts[i];
+  }
+  spindle_measured_rpm = total * 60;
+  TCNT5 = 0;
+}
 
 void spindle_init()
 {    
+  SPINDLE_ENABLE_DDR |= (1<<SPINDLE_ENABLE_BIT); // Configure as output pin.
+  SPINDLE_DIRECTION_DDR |= (1<<SPINDLE_DIRECTION_BIT); // Configure as output pin.
+
   // Configure variable spindle PWM and enable pin, if required.
   SPINDLE_PWM_DDR |= (1<<SPINDLE_PWM_BIT); // Configure as PWM output pin.
   SPINDLE_TCCRA_REGISTER = SPINDLE_TCCRA_INIT_MASK; // Configure PWM output compare timer
   SPINDLE_TCCRB_REGISTER = SPINDLE_TCCRB_INIT_MASK;
-  SPINDLE_OCRA_REGISTER = SPINDLE_OCRA_TOP_VALUE; // Set the top value for 16-bit fast PWM mode
-  SPINDLE_ENABLE_DDR |= (1<<SPINDLE_ENABLE_BIT); // Configure as output pin.
-  SPINDLE_DIRECTION_DDR |= (1<<SPINDLE_DIRECTION_BIT); // Configure as output pin.
 
-  pwm_gradient = SPINDLE_PWM_RANGE/(settings.rpm_max-settings.rpm_min);
+  //SPINDLE_OCRA_REGISTER = SPINDLE_OCRA_TOP_VALUE; // Set the top value for 16-bit fast PWM mode
+
+  for(uint8_t i=0; i<10; i++) {
+    spindle_counts[i] = 0;
+  }
+
+  SPINDLE_ICR_REGISTER = SPINDLE_ICR_VALUE;
+  SPINDLE_OCR_REGISTER = SPINDLE_ICR_VALUE;
+
+  TCCR5A = 0;             
+  TCCR5B = 0;              
+  TCNT5 = 0;      // counters to zero
+  
+  // start Timer 
+  // External clock source on T1 pin (D5). Clock on rising edge.
+  TCCR5B =  _BV (CS50) | _BV (CS51) | _BV (CS52);
+
+  TCCR4A = 0;
+  TCCR4B = (1 << CS41) | (1 << CS40); //prescaler 64
+  TCNT4 = 65536 - (250 * 100);
+  TIMSK4 |= (1 << TOIE4);
+
   spindle_stop();
 }
 
@@ -72,6 +110,8 @@ void spindle_stop()
 // and stepper ISR. Keep routine small and efficient.
 void spindle_set_speed(uint16_t pwm_value)
 {
+
+
   SPINDLE_OCR_REGISTER = pwm_value; // Set PWM output level.
   #ifdef SPINDLE_ENABLE_OFF_WITH_ZERO_SPEED
     if (pwm_value == SPINDLE_PWM_OFF_VALUE) {
@@ -88,7 +128,7 @@ void spindle_set_speed(uint16_t pwm_value)
     if (pwm_value == SPINDLE_PWM_OFF_VALUE) {
       SPINDLE_TCCRA_REGISTER &= ~(1<<SPINDLE_COMB_BIT); // Disable PWM. Output voltage is zero.
     } else {
-      SPINDLE_TCCRA_REGISTER |= (1<<SPINDLE_COMB_BIT); // Ensure PWM output is enabled.
+      SPINDLE_TCCRA_REGISTER |= (1<<SPINDLE_COMB_BIT); // Ensure PWM output is enabled.     
     }
   #endif
 }
@@ -143,12 +183,10 @@ void spindle_set_speed(uint16_t pwm_value)
   uint16_t spindle_compute_pwm_value(float rpm) // Mega2560 PWM register is 16-bit.
   {
 	uint16_t pwm_value;
-	rpm *= (0.010*sys.spindle_speed_ovr); // Scale by spindle speed override value.
-	// Calculate PWM register value based on rpm max/min settings and programmed rpm.
 	if ((settings.rpm_min >= settings.rpm_max) || (rpm >= settings.rpm_max)) {
 	  // No PWM range possible. Set simple on/off spindle control pin state.
 	  sys.spindle_speed = settings.rpm_max;
-	  pwm_value = SPINDLE_PWM_MAX_VALUE;
+	  pwm_value = SPINDLE_ICR_VALUE;
 	} else if (rpm <= settings.rpm_min) {
 	  if (rpm == 0.0) { // S0 disables spindle
 		sys.spindle_speed = 0.0;
@@ -158,11 +196,11 @@ void spindle_set_speed(uint16_t pwm_value)
 		pwm_value = SPINDLE_PWM_MIN_VALUE;
 	  }
 	} else { 
-	  // Compute intermediate PWM value with linear spindle speed model.
-	  // NOTE: A nonlinear model could be installed here, if required, but keep it VERY light-weight.
-	  sys.spindle_speed = rpm;
-	  pwm_value = floor((rpm-settings.rpm_min)*pwm_gradient) + SPINDLE_PWM_MIN_VALUE;
+    float percent = (rpm - settings.rpm_min) / (settings.rpm_max - settings.rpm_min);
+    sys.spindle_speed = rpm;
+	  pwm_value = SPINDLE_ICR_VALUE -  (percent) * SPINDLE_ICR_VALUE;  
 	}
+
 	return(pwm_value);
   }
 
@@ -179,8 +217,7 @@ void spindle_set_state(uint8_t state, float rpm)
     sys.spindle_speed = 0.0;
     spindle_stop();
   
-  } else {
-  
+  } else {  
     if (state == SPINDLE_ENABLE_CW) {
       SPINDLE_DIRECTION_PORT &= ~(1<<SPINDLE_DIRECTION_BIT);
     } else {
