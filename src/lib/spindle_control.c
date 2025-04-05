@@ -183,10 +183,14 @@ void spindle_set_speed(uint16_t pwm_value)
   uint16_t spindle_compute_pwm_value(float rpm) // Mega2560 PWM register is 16-bit.
   {
 	uint16_t pwm_value;
-	if ((settings.rpm_min >= settings.rpm_max) || (rpm >= settings.rpm_max)) {
+  
+  if ((rpm == settings.rpm_max)) {
+    pwm_value = 1;
+  }
+	else if ((settings.rpm_min >= settings.rpm_max)) {
 	  // No PWM range possible. Set simple on/off spindle control pin state.
 	  sys.spindle_speed = settings.rpm_max;
-	  pwm_value = SPINDLE_ICR_VALUE;
+	  pwm_value = SPINDLE_ICR_VALUE;    
 	} else if (rpm <= settings.rpm_min) {
 	  if (rpm == 0.0) { // S0 disables spindle
 		sys.spindle_speed = 0.0;
@@ -199,6 +203,9 @@ void spindle_set_speed(uint16_t pwm_value)
     float percent = (rpm - settings.rpm_min) / (settings.rpm_max - settings.rpm_min);
     sys.spindle_speed = rpm;
 	  pwm_value = SPINDLE_ICR_VALUE -  (percent) * SPINDLE_ICR_VALUE;  
+    printString(PSTR(" PWM Value: "));
+    print_uint32_base10(pwm_value); // Debugging
+    printString(PSTR("\n"));
 	}
 
 	return(pwm_value);

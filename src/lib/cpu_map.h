@@ -222,7 +222,7 @@
 
   #define SPINDLE_DIRECTION_DDR   DDRE
   #define SPINDLE_DIRECTION_PORT  PORTE
-  #define SPINDLE_DIRECTION_BIT   3 // MEGA2560 Digital Pin 5 - Ramps 1.4 Servo 3 Signal pin
+  #define SPINDLE_DIRECTION_BIT   3 // MEGA2560 Digital Pin 40 - Ramps 1.4 Servo 3 Signal pin
 
   // Define flood and mist coolant enable output pins.
   
